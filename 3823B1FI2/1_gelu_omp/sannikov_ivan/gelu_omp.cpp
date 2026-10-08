@@ -13,7 +13,7 @@ std::vector<float> GeluOMP(const std::vector<float>& input) {
     constexpr float kCoeff = 0.044715f;
 
     #pragma omp parallel for simd schedule(static)
-    for (std::ptrdiff_t i = 0; i < kInputVectorSize; ++i) {
+    for (std::size_t i = 0; i < kInputVectorSize; ++i) {
         const float kX = kInputData[i];
         const float kFabsX = std::fabs(kX);
 
