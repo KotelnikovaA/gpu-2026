@@ -5,23 +5,25 @@ __global__ void GemmKernel(const float* __restrict__ A, const float* __restrict_
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col_vec = blockIdx.x * blockDim.x + threadIdx.x; 
 
-    if (row < n && col_vec * 4 < n) {
-        float4 sum = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
-
-        #pragma unroll 8
-        for (int k = 0; k < n; ++k) {
-            float a_val = A[row * n + k];
-            
-            float4 b_vec = reinterpret_cast<const float4*>(&B[k * n + col_vec * 4])[0];
-
-            sum.x += a_val * b_vec.x;
-            sum.y += a_val * b_vec.y;
-            sum.z += a_val * b_vec.z;
-            sum.w += a_val * b_vec.w;
-        }
-
-        reinterpret_cast<float4*>(&C[row * n + col_vec * 4])[0] = sum;
+    if (row >= n || col_vec * 4 >= n) {
+        return;
     }
+
+    float4 sum = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+
+    #pragma unroll 8
+    for (int k = 0; k < n; ++k) {
+        float a_val = A[row * n + k];
+        
+        float4 b_vec = reinterpret_cast<const float4*>(&B[k * n + col_vec * 4])[0];
+
+        sum.x += a_val * b_vec.x;
+        sum.y += a_val * b_vec.y;
+        sum.z += a_val * b_vec.z;
+        sum.w += a_val * b_vec.w;
+    }
+
+    reinterpret_cast<float4*>(&C[row * n + col_vec * 4])[0] = sum;
 }
 
 std::vector<float> NaiveGemmCUDA(const std::vector<float>& a,
