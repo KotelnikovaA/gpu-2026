@@ -1,5 +1,5 @@
-#ifndef __GELU_CUDA_H
-#define __GELU_CUDA_H
+#ifndef GELU_CUDA_H
+#define GELU_CUDA_H
 
 #include <vector>
 

@@ -1,79 +1,83 @@
 #include "gelu_cuda.h"
 
 #include <cuda_runtime.h>
-
-#include <cmath>
+#include <algorithm>
+#include <cstddef>
 #include <stdexcept>
+#include <string>
 
 namespace {
 
-__global__ void GeluKernel(const float* input, float* output, int size) {
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+void CheckCuda(cudaError_t error, const char* operation) {
+    if (error != cudaSuccess) {
+        throw std::runtime_error(std::string(operation) + ": " +
+                                 cudaGetErrorString(error));
+    }
+}
 
-    if (i >= size) {
-        return;
+struct DeviceBuffer {
+    float* data = nullptr;
+    std::size_t capacity = 0;
+
+    void Reserve(std::size_t bytes) {
+        if (bytes <= capacity) {
+            return;
+        }
+        if (data != nullptr) {
+            CheckCuda(cudaFree(data), "cudaFree");
+            data = nullptr;
+            capacity = 0;
+        }
+        CheckCuda(cudaMalloc(reinterpret_cast<void**>(&data), bytes),
+                  "cudaMalloc");
+        capacity = bytes;
     }
 
-    const float x = input[i];
-    const float x3 = x * x * x;
+    ~DeviceBuffer() {
+        if (data != nullptr) {
+            cudaFree(data);
+        }
+    }
+};
 
-    constexpr float kTwoOverPi = 0.63662f;
-    constexpr float kCoefficient = 0.044715f;
+__global__ void GeluKernel(float* data, std::size_t n) {
+    const std::size_t start =
+        static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const std::size_t stride =
+        static_cast<std::size_t>(gridDim.x) * blockDim.x;
 
-    const float z = kTwoOverPi * (x + kCoefficient * x3);
-
-    const float exp_value = expf(-2.0f * z);
-    const float tanh_value =
-        (1.0f - exp_value) / (1.0f + exp_value);
-
-    output[i] = 0.5f * x * (1.0f + tanh_value);
+    for (std::size_t i = start; i < n; i += stride) {
+        const float x = data[i];
+        const float x3 = x * x * x;
+        const float z = 0.7978845608028654f * (x + 0.044715f * x3);
+        data[i] = x / (1.0f + expf(-2.0f * z));
+    }
 }
 
 }  // namespace
 
 std::vector<float> GeluCUDA(const std::vector<float>& input) {
-    std::vector<float> output(input.size());
-
     if (input.empty()) {
-        return output;
+        return {};
     }
 
-    float* device_input = nullptr;
-    float* device_output = nullptr;
+    const std::size_t n = input.size();
+    const std::size_t bytes = n * sizeof(float);
+    static thread_local DeviceBuffer buffer;
+    buffer.Reserve(bytes);
 
-    const size_t size = input.size() * sizeof(float);
+    CheckCuda(cudaMemcpy(buffer.data, input.data(), bytes,
+                         cudaMemcpyHostToDevice), "cudaMemcpy H2D");
 
-    cudaMalloc(&device_input, size);
-    cudaMalloc(&device_output, size);
+    constexpr unsigned int kBlockSize = 256;
+    const unsigned int blocks = static_cast<unsigned int>(
+        std::min<std::size_t>(1 + (n - 1) / kBlockSize, 65535));
 
-    cudaMemcpy(
-        device_input,
-        input.data(),
-        size,
-        cudaMemcpyHostToDevice
-    );
+    GeluKernel<<<blocks, kBlockSize>>>(buffer.data, n);
+    CheckCuda(cudaGetLastError(), "GeluKernel launch");
 
-    constexpr int kBlockSize = 256;
-    const int block_count =
-        (static_cast<int>(input.size()) + kBlockSize - 1) / kBlockSize;
-
-    GeluKernel<<<block_count, kBlockSize>>>(
-        device_input,
-        device_output,
-        static_cast<int>(input.size())
-    );
-
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(
-        output.data(),
-        device_output,
-        size,
-        cudaMemcpyDeviceToHost
-    );
-
-    cudaFree(device_input);
-    cudaFree(device_output);
-
+    std::vector<float> output(n);
+    CheckCuda(cudaMemcpy(output.data(), buffer.data, bytes,
+                         cudaMemcpyDeviceToHost), "cudaMemcpy D2H");
     return output;
 }
