@@ -6,7 +6,8 @@
 
 namespace {
 
-constexpr int kTileSize = 32;
+constexpr int kOutputTile = 64;
+constexpr int kInnerTile = 32;
 
 void EnsureCudaSuccess(cudaError_t status) {
     if (status != cudaSuccess)
@@ -33,43 +34,80 @@ struct GpuStorage {
     }
 };
 
-__global__ void MultiplyTiles(const float* __restrict__ a,
-                              const float* __restrict__ b,
-                              float* __restrict__ c, int n) {
-    __shared__ float tile_a[kTileSize][kTileSize];
-    __shared__ float tile_b[kTileSize][kTileSize];
-    __shared__ float tile_c[kTileSize][kTileSize];
+template<bool CheckEdges>
+__global__ void AccumulateSharedTiles(const float* __restrict__ a,
+                                      const float* __restrict__ b,
+                                      float* __restrict__ c, int n) {
+    __shared__ float shared_a[kOutputTile][kInnerTile];
+    __shared__ float shared_b[kInnerTile][kOutputTile];
 
-    const int x = threadIdx.x;
-    const int y = threadIdx.y;
-    const int row = blockIdx.y * kTileSize + y;
-    const int col = blockIdx.x * kTileSize + x;
+    const int tx = threadIdx.x;
+    const int ty = threadIdx.y;
+    const int tid = ty * 32 + tx;
 
-    tile_c[y][x] = 0.0f;
+    const int base_row = blockIdx.y * kOutputTile;
+    const int base_col = blockIdx.x * kOutputTile;
 
-    for (int start = 0; start < n; start += kTileSize) {
-        tile_a[y][x] = (row < n && start + x < n)
-            ? a[std::size_t(row) * n + start + x] : 0.0f;
+    float first[8] = {};
+    float second[8] = {};
 
-        tile_b[y][x] = (start + y < n && col < n)
-            ? b[std::size_t(start + y) * n + col] : 0.0f;
+    for (int start = 0; start < n; start += kInnerTile) {
+#pragma unroll
+        for (int i = tid; i < kOutputTile * kInnerTile; i += 256) {
+            const int r = i / kInnerTile;
+            const int k = i % kInnerTile;
+            const int row = base_row + r;
+            const int col = start + k;
+
+            shared_a[r][k] = (!CheckEdges || (row < n && col < n))
+                ? a[std::size_t(row) * n + col] : 0.0f;
+        }
+
+#pragma unroll
+        for (int i = tid; i < kInnerTile * kOutputTile; i += 256) {
+            const int k = i / kOutputTile;
+            const int x = i % kOutputTile;
+            const int row = start + k;
+            const int col = base_col + x;
+
+            shared_b[k][x] = (!CheckEdges || (row < n && col < n))
+                ? b[std::size_t(row) * n + col] : 0.0f;
+        }
 
         __syncthreads();
 
-        float sum = tile_c[y][x];
+#pragma unroll
+        for (int k = 0; k < kInnerTile; ++k) {
+            const float b0 = shared_b[k][tx];
+            const float b1 = shared_b[k][tx + 32];
 
 #pragma unroll
-        for (int k = 0; k < kTileSize; ++k) {
-            sum = fmaf(tile_a[y][k], tile_b[k][x], sum);
-        }
+            for (int r = 0; r < 8; ++r) {
+                const float av = shared_a[ty + r * 8][k];
 
-        tile_c[y][x] = sum;
+                first[r] = fmaf(av, b0, first[r]);
+                second[r] = fmaf(av, b1, second[r]);
+            }
+        }
 
         __syncthreads();
     }
 
-    if (row < n && col < n)
-        c[std::size_t(row) * n + col] = tile_c[y][x];
+#pragma unroll
+    for (int r = 0; r < 8; ++r) {
+        const int row = base_row + ty + r * 8;
+        const int col = base_col + tx;
+
+        if (!CheckEdges || row < n) {
+            const std::size_t offset = std::size_t(row) * n;
+
+            if (!CheckEdges || col < n)
+                c[offset + col] = first[r];
+
+            if (!CheckEdges || col + 32 < n)
+                c[offset + col + 32] = second[r];
+        }
+    }
 }
 
 }  // namespace
@@ -96,11 +134,15 @@ std::vector<float> BlockGemmCUDA(const std::vector<float>& a,
     EnsureCudaSuccess(cudaMemcpy(
         db, b.data(), bytes, cudaMemcpyHostToDevice));
 
-    const dim3 block(kTileSize, kTileSize);
-    const unsigned int tiles = 1 + (n - 1) / kTileSize;
+    const dim3 block(32, 8);
+    const unsigned int tiles = 1 + (n - 1) / kOutputTile;
     const dim3 grid(tiles, tiles);
 
-    MultiplyTiles<<<grid, block>>>(da, db, dc, n);
+    if (n % kOutputTile == 0)
+        AccumulateSharedTiles<false><<<grid, block>>>(da, db, dc, n);
+    else
+        AccumulateSharedTiles<true><<<grid, block>>>(da, db, dc, n);
+
     EnsureCudaSuccess(cudaGetLastError());
 
     std::vector<float> result(count);
