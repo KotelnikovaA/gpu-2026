@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstddef>
+#include "gelu_omp.h"
 
 #ifdef _OPENMP
 #include <omp.h>
