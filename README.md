@@ -465,6 +465,7 @@ std::vector<float> GeluOCL(const std::vector<float>& input, int platform) {
 |3823B1PE1|redkina_alina|0.2390|1|
 |3823B1PE2|kotelnikova_anastasia|0.2399|4|
 |3823B1PE2|sinev_artem|0.2406|1|
+|3823B1PE1|perepelkin_iaroslav|0.2427|7|
 |3823B1PE2|kolotukhin_alexander|0.2435|7|
 |3823B1PE1|rusakova_aleksandra|0.2437|3|
 |3823B1PE3|marin_lev|0.2451|4|
@@ -478,7 +479,6 @@ std::vector<float> GeluOCL(const std::vector<float>& input, int platform) {
 |3823B1PE1|tsibareva_ekaterina|0.2788|2|
 |3823B1PE1|zhurin_ivan|0.3955|6|
 |3823B1PE4|urin_oleg|TEST FAILED|-|
-|3823B1PE1|perepelkin_iaroslav|TEST FAILED|-|
 
 ## 3_naive_gemm_cuda (4096 elements)
 |Group|Name|Result|Rank|
@@ -577,13 +577,13 @@ Passed: 0
 |Group|Name|Passed|Score|
 |-----|----|------|-----|
 |3823B1PE1|morozov_nikita|1/8|57|
-|3823B1PE1|otcheskov_semyon|4/8|236|
-|3823B1PE1|perepelkin_iaroslav|3/8|173|
+|3823B1PE1|otcheskov_semyon|4/8|235|
+|3823B1PE1|perepelkin_iaroslav|4/8|229|
 |3823B1PE1|redkina_alina|**8/8**|**496**|
-|3823B1PE1|rusakova_aleksandra|**8/8**|**490**|
+|3823B1PE1|rusakova_aleksandra|**8/8**|**489**|
 |3823B1PE1|shilin_nikita|4/8|238|
-|3823B1PE1|tsibareva_ekaterina|2/8|117|
-|3823B1PE1|zhurin_ivan|2/8|107|
+|3823B1PE1|tsibareva_ekaterina|2/8|116|
+|3823B1PE1|zhurin_ivan|2/8|106|
 
 Passed: 2
 
