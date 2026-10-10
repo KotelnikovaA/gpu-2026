@@ -3,11 +3,11 @@
 #include <cstddef>
 
 std::vector<float> GeluOMP(const std::vector<float>& input) {
-    const size_t n = input.size();
+    const std::size_t n = input.size();
     std::vector<float> output(n);
 
     const float* in = input.data();
-    const float* out = output.data();
+    float* out = output.data();
     
     // 2 * sqrt(2/pi)
     const float c1 = 1.5957691216f;
